@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { TargetItem, OptimizationResult, NodeId } from '../data/types';
 import { optimize } from '../lib/optimizer';
 import { loadAll } from '../lib/repoe-loader';
-import { buildModPool, calcTagProbabilities, getItemTags } from '../lib/mod-pool';
+import { buildModPool, computePoolContext, calcTagProbabilities, getItemTags } from '../lib/mod-pool';
 import type { TagProbability } from '../lib/mod-pool';
 import type { ModsDB, BaseItemsDB } from '../lib/repoe-loader';
 
@@ -13,6 +13,10 @@ interface AppState {
   pointBudget: number;
   result: OptimizationResult | null;
   tagProbabilities: TagProbability[];
+  /** Pool share of no-tag desired suffix mods in the optimized suffix pool (0 if none) */
+  noTagSuffixShare: number;
+  /** Pool share of no-tag desired prefix mods in the optimized prefix pool (0 if none) */
+  noTagPrefixShare: number;
   pinnedNodes: Set<NodeId>;
 
   // RePoE data
@@ -33,6 +37,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   pointBudget: 20,
   result: null,
   tagProbabilities: [],
+  noTagSuffixShare: 0,
+  noTagPrefixShare: 0,
   pinnedNodes: new Set(),
   dataState: 'idle',
   dataError: null,
@@ -46,7 +52,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const { mods, baseItems } = await loadAll();
       set({ modsDB: mods, baseItemsDB: baseItems, dataState: 'ready' });
-      // Re-run optimizer with full data if target is set
       const { targetItem, pointBudget } = get();
       if (targetItem) runOptimizer(targetItem, pointBudget, mods, baseItems, set);
     } catch (e) {
@@ -58,7 +63,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ targetItem: item });
     const { pointBudget, modsDB, baseItemsDB } = get();
     runOptimizer(item, pointBudget, modsDB, baseItemsDB, set);
-    // Kick off data load if not started
     const { dataState } = get();
     if (dataState === 'idle') get().loadData();
   },
@@ -75,7 +79,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ pinnedNodes: pins });
   },
 
-  clearTarget: () => set({ targetItem: null, result: null, tagProbabilities: [] }),
+  clearTarget: () => set({ targetItem: null, result: null, tagProbabilities: [], noTagSuffixShare: 0, noTagPrefixShare: 0 }),
 }));
 
 function runOptimizer(
@@ -85,18 +89,43 @@ function runOptimizer(
   baseItems: BaseItemsDB | null,
   set: (s: Partial<AppState>) => void,
 ) {
-  const result = optimize(item, budget);
+  const itemLevel = item.sourceItem?.itemLevel ?? 100;
   let tagProbabilities: TagProbability[] = [];
+  let noTagSuffixShare = 0;
+  let noTagPrefixShare = 0;
 
-  if (mods && baseItems && item.targetTags.length > 0) {
+  if (mods && baseItems) {
     const itemTags = getItemTags(
       baseItems,
       item.sourceItem?.baseType ?? '',
       item.sourceItem?.itemClass ?? item.itemClass,
     );
-    const pool = buildModPool(mods, itemTags, result.allocation, item.sourceItem?.itemLevel ?? 100);
-    tagProbabilities = calcTagProbabilities(pool, item.targetTags.map(t => t.tag));
-  }
 
-  set({ result, tagProbabilities });
+    const ctx = computePoolContext(mods, itemTags, item, itemLevel);
+    const result = optimize(item, budget, ctx);
+
+    const needsPool = item.targetTags.length > 0 || item.noTagMods?.suffix || item.noTagMods?.prefix;
+    if (needsPool) {
+      const pool = buildModPool(mods, itemTags, result.allocation, itemLevel);
+      if (item.targetTags.length > 0) {
+        tagProbabilities = calcTagProbabilities(pool, item.targetTags.map(t => t.tag));
+      }
+      if (item.noTagMods?.suffix && ctx.untaggedDesiredSuffixBase > 0) {
+        noTagSuffixShare = pool.suffixTotal > 0
+          ? ctx.untaggedDesiredSuffixBase / pool.suffixTotal
+          : 0;
+      }
+      if (item.noTagMods?.prefix && ctx.untaggedDesiredPrefixBase > 0) {
+        noTagPrefixShare = pool.prefixTotal > 0
+          ? ctx.untaggedDesiredPrefixBase / pool.prefixTotal
+          : 0;
+      }
+    }
+
+    set({ result, tagProbabilities, noTagSuffixShare, noTagPrefixShare });
+  } else {
+    // Heuristic run before data is loaded
+    const result = optimize(item, budget);
+    set({ result, tagProbabilities: [], noTagSuffixShare: 0, noTagPrefixShare: 0 });
+  }
 }

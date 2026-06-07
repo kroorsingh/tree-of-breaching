@@ -2,7 +2,7 @@ import { useAppStore } from '../../store/app-store';
 import { NODE_MAP } from '../../data/genesis-tree';
 
 export default function Results() {
-  const { result, targetItem, pointBudget, tagProbabilities, dataState } = useAppStore();
+  const { result, targetItem, pointBudget, tagProbabilities, noTagSuffixShare, noTagPrefixShare, dataState } = useAppStore();
 
   if (!result || !targetItem) {
     return (
@@ -14,6 +14,7 @@ export default function Results() {
 
   const desiredTags = new Set(targetItem.targetTags.map(t => t.tag));
   const unusedPoints = pointBudget - result.pointsUsed;
+  const hasNoTagTarget = targetItem.noTagMods?.suffix || targetItem.noTagMods?.prefix;
 
   return (
     <div className="flex flex-col gap-3">
@@ -27,16 +28,19 @@ export default function Results() {
         </p>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span style={{ fontSize: 28, fontWeight: 700, color: 'var(--gold)' }}>
-            {result.score.toFixed(1)}
+            {result.score.toFixed(4)}
           </span>
           <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
             {result.pointsUsed}/{pointBudget} pts
             {unusedPoints > 0 && ` · ${unusedPoints} unspent`}
           </span>
         </div>
+        <p style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
+          ΔP score — marginal probability gain summed over all recommended nodes
+        </p>
       </div>
 
-      {/* Per-tag probabilities (shown when RePoE data is loaded) */}
+      {/* Per-tag pool shares */}
       {tagProbabilities.length > 0 && (
         <div>
           <p style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
@@ -69,7 +73,34 @@ export default function Results() {
         </div>
       )}
 
-      {dataState === 'loading' && (
+      {/* No-tag target probability */}
+      {hasNoTagTarget && (noTagSuffixShare > 0 || noTagPrefixShare > 0) && (
+        <div>
+          <p style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+            No-Tag Target Pool Share
+          </p>
+          <div className="flex flex-col gap-1">
+            {noTagSuffixShare > 0 && (
+              <NoTagRow label="Suffix (e.g. Suppress)" share={noTagSuffixShare} />
+            )}
+            {noTagPrefixShare > 0 && (
+              <NoTagRow label="Prefix (no-tag)" share={noTagPrefixShare} />
+            )}
+          </div>
+          <p style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>
+            Share of the affix pool occupied by untagged desired mods after tree optimization.
+            Optimizer forsook high-weight competing tags to maximize this.
+          </p>
+        </div>
+      )}
+
+      {hasNoTagTarget && noTagSuffixShare === 0 && noTagPrefixShare === 0 && dataState === 'loading' && (
+        <p style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+          Loading mod database for no-tag probability data…
+        </p>
+      )}
+
+      {dataState === 'loading' && !hasNoTagTarget && tagProbabilities.length === 0 && (
         <p style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>
           Loading mod database for probability data…
         </p>
@@ -91,14 +122,31 @@ export default function Results() {
               .sort((a, b) => b.contribution - a.contribution)
               .map(({ nodeId, nodeName, contribution }) => {
                 const node = NODE_MAP.get(nodeId);
-                const tag = node?.effects.find(e => e.category === 'modTag')?.tag;
-                const isDesired = tag ? desiredTags.has(tag) : false;
+                const effect = node?.effects.find(e => e.category === 'modTag');
+                const tag = effect?.tag;
+                const isDevoted = (effect?.value ?? 1) > 1;
+                const isForsaken = (effect?.value ?? 1) < 1;
+                const isDesiredTag = tag ? desiredTags.has(tag) : false;
+                const isForsakenForNoTag = isForsaken && hasNoTagTarget && !isDesiredTag;
+                const highlight = isDevoted && isDesiredTag
+                  ? 'devoted'
+                  : isForsakenForNoTag
+                  ? 'forsaken'
+                  : 'neutral';
+
                 return (
                   <div key={nodeId} style={{
                     display: 'flex', alignItems: 'center', gap: 8,
                     padding: '6px 10px', borderRadius: 4,
-                    background: isDesired ? 'var(--node-recommended)' : 'var(--surface2)',
-                    border: `1px solid ${isDesired ? 'var(--gold-dim)' : 'var(--border)'}`,
+                    background: highlight === 'devoted'
+                      ? 'var(--node-recommended)'
+                      : highlight === 'forsaken'
+                      ? 'rgba(74,159,232,0.08)'
+                      : 'var(--surface2)',
+                    border: `1px solid ${
+                      highlight === 'devoted' ? 'var(--gold-dim)'
+                      : highlight === 'forsaken' ? 'rgba(74,159,232,0.4)'
+                      : 'var(--border)'}`,
                   }}>
                     <NodeBadge id={nodeId} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -107,9 +155,14 @@ export default function Results() {
                         {node?.description}
                       </p>
                     </div>
-                    <span style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700, flexShrink: 0 }}>
-                      +{contribution.toFixed(1)}
-                    </span>
+                    <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                      <span style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700 }}>
+                        +{contribution.toFixed(5)}
+                      </span>
+                      {isForsakenForNoTag && (
+                        <p style={{ fontSize: 10, color: '#4a9fe8', marginTop: 1 }}>pool↓</p>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -117,7 +170,38 @@ export default function Results() {
         </div>
       )}
 
+      {result.breakdown.length === 0 && (
+        <p style={{ fontSize: 12, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+          {hasNoTagTarget
+            ? 'No forsake nodes improve pool share within budget. Try increasing the point budget.'
+            : 'No modTag nodes score positively for the selected targets.'}
+        </p>
+      )}
+
       <AllocationSummary allocation={result.allocation} desiredTags={desiredTags} />
+    </div>
+  );
+}
+
+function NoTagRow({ label, share }: { label: string; share: number }) {
+  const prob3 = 1 - Math.pow(1 - share, 3);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ width: 140, fontSize: 12, color: 'var(--text)', flexShrink: 0 }}>{label}</span>
+      <div style={{ flex: 1, background: 'var(--surface2)', borderRadius: 2, height: 8, overflow: 'hidden' }}>
+        <div style={{
+          width: `${Math.min(share * 100, 100).toFixed(1)}%`,
+          height: '100%',
+          background: '#4a9fe8',
+          transition: 'width 0.3s',
+        }} />
+      </div>
+      <span style={{ width: 44, fontSize: 11, color: 'var(--text-dim)', textAlign: 'right', flexShrink: 0 }}>
+        {(share * 100).toFixed(1)}%
+      </span>
+      <span style={{ width: 44, fontSize: 11, color: prob3 > 0.5 ? '#86efac' : 'var(--text-dim)', textAlign: 'right', flexShrink: 0 }}>
+        {(prob3 * 100).toFixed(0)}%↑
+      </span>
     </div>
   );
 }

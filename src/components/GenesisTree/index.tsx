@@ -92,10 +92,20 @@ export default function GenesisTree() {
         ))}
       </div>
 
-      <div style={{ background: 'var(--surface)', borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden', position: 'relative' }}>
+      <div style={{
+        width: '100%',
+        maxHeight: 'calc(100vh - 80px)',
+        aspectRatio: `${VIEW_W} / ${VIEW_H}`,
+        background: 'var(--surface)',
+        borderRadius: 6,
+        border: '1px solid var(--border)',
+        overflow: 'hidden',
+        position: 'relative',
+      }}>
         <svg
           viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           width="100%"
+          height="100%"
           style={{ display: 'block' }}
           onMouseMove={e => {
             const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();

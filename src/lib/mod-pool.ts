@@ -1,7 +1,7 @@
 import type { ModsDB, BaseItemsDB, RePoEMod } from './repoe-loader';
 import { getSpawnWeight, findBaseByName, getBasesByClass } from './repoe-loader';
 import { GENESIS_TAG_TO_IMPLICIT_TAG } from '../data/tag-boost-map';
-import type { NodeId } from '../data/types';
+import type { NodeId, TargetItem } from '../data/types';
 import { NODE_MAP } from '../data/genesis-tree';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -161,4 +161,135 @@ export function calcTagProbabilities(
 
     return { displayTag, implicitTag, poolShare: share, prob3Rolls };
   });
+}
+
+// ─── Pool Context (for probability-based optimizer scoring) ──────────────────
+
+/**
+ * Pre-computed pool statistics used by the optimizer's probability scoring model.
+ *
+ * For each Genesis internal implicit tag, we track:
+ *   - total base weight of prefix/suffix mods on this item with that tag
+ *   - base weight of desired prefix/suffix mods (those matching the target) with that tag
+ *
+ * The optimizer uses these to compute the marginal probability improvement of
+ * devoting or forsaking each tag, via the formula:
+ *   ΔP = (M-1) * (desiredByTag * total - desiredTotal * tagTotal) / total²
+ *
+ * where M is the node's multiplier (>1 for devoted, <1 for forsaken).
+ * Positive ΔP means the node improves probability of hitting the target.
+ */
+export interface PoolContext {
+  prefixTagWeights: Map<string, number>;
+  suffixTagWeights: Map<string, number>;
+  desiredPrefixByTag: Map<string, number>;
+  desiredSuffixByTag: Map<string, number>;
+  totalPrefix: number;
+  totalSuffix: number;
+  /** Total desired prefix weight (each mod counted once, with required×1.5 scaling) */
+  desiredPrefixTotal: number;
+  /** Total desired suffix weight */
+  desiredSuffixTotal: number;
+  /** Base weight of all desired suffix mods with no implicit_tags (unaffected by any tree node) */
+  untaggedDesiredSuffixBase: number;
+  /** Base weight of all desired prefix mods with no implicit_tags */
+  untaggedDesiredPrefixBase: number;
+}
+
+/**
+ * Builds a PoolContext for use in probability-based optimizer scoring.
+ * Must be called with the base item's mods (no allocation multipliers applied).
+ */
+export function computePoolContext(
+  mods: ModsDB,
+  itemTags: string[],
+  target: TargetItem,
+  maxItemLevel = 100,
+): PoolContext {
+  const desiredInternalTags = new Map<string, number>();
+  for (const { tag, required } of target.targetTags) {
+    const internal = GENESIS_TAG_TO_IMPLICIT_TAG[tag];
+    if (internal) desiredInternalTags.set(internal, required ? 1.5 : 1.0);
+  }
+
+  const prefixTagWeights = new Map<string, number>();
+  const suffixTagWeights = new Map<string, number>();
+  const desiredPrefixByTag = new Map<string, number>();
+  const desiredSuffixByTag = new Map<string, number>();
+  let totalPrefix = 0;
+  let totalSuffix = 0;
+  let desiredPrefixTotal = 0;
+  let desiredSuffixTotal = 0;
+
+  const countedDesiredPrefix = new Set<string>();
+  const countedDesiredSuffix = new Set<string>();
+
+  for (const [id, mod] of Object.entries(mods)) {
+    if (mod.domain !== 'item') continue;
+    if (mod.generation_type !== 'prefix' && mod.generation_type !== 'suffix') continue;
+    if (mod.is_essence_only) continue;
+    if (mod.required_level > maxItemLevel) continue;
+
+    const baseWeight = getSpawnWeight(mod.spawn_weights, itemTags);
+    if (baseWeight <= 0) continue;
+
+    const isPrefix = mod.generation_type === 'prefix';
+    if (isPrefix) totalPrefix += baseWeight;
+    else totalSuffix += baseWeight;
+
+    const tagWeights = isPrefix ? prefixTagWeights : suffixTagWeights;
+    for (const t of mod.implicit_tags ?? []) {
+      tagWeights.set(t, (tagWeights.get(t) ?? 0) + baseWeight);
+    }
+
+    const implicitTags = mod.implicit_tags ?? [];
+    const matchingTags = implicitTags.filter(t => desiredInternalTags.has(t));
+    const isNoTagDesired =
+      implicitTags.length === 0 &&
+      ((isPrefix && (target.noTagMods?.prefix ?? false)) ||
+       (!isPrefix && (target.noTagMods?.suffix ?? false)));
+
+    if (matchingTags.length > 0 || isNoTagDesired) {
+      const counted = isPrefix ? countedDesiredPrefix : countedDesiredSuffix;
+      if (!counted.has(id)) {
+        counted.add(id);
+        let reqFactor = 1.0;
+        for (const t of matchingTags) {
+          reqFactor = Math.max(reqFactor, desiredInternalTags.get(t) ?? 1.0);
+        }
+        const w = baseWeight * reqFactor;
+        if (isPrefix) desiredPrefixTotal += w;
+        else desiredSuffixTotal += w;
+
+        const desiredByTag = isPrefix ? desiredPrefixByTag : desiredSuffixByTag;
+        for (const t of matchingTags) {
+          const factor = desiredInternalTags.get(t) ?? 1.0;
+          desiredByTag.set(t, (desiredByTag.get(t) ?? 0) + baseWeight * factor);
+        }
+      }
+    }
+  }
+
+  let untaggedDesiredSuffixBase = 0;
+  let untaggedDesiredPrefixBase = 0;
+  for (const id of countedDesiredSuffix) {
+    const mod = mods[id];
+    if (mod && (mod.implicit_tags ?? []).length === 0) {
+      untaggedDesiredSuffixBase += getSpawnWeight(mod.spawn_weights, itemTags);
+    }
+  }
+  for (const id of countedDesiredPrefix) {
+    const mod = mods[id];
+    if (mod && (mod.implicit_tags ?? []).length === 0) {
+      untaggedDesiredPrefixBase += getSpawnWeight(mod.spawn_weights, itemTags);
+    }
+  }
+
+  return {
+    prefixTagWeights, suffixTagWeights,
+    desiredPrefixByTag, desiredSuffixByTag,
+    totalPrefix, totalSuffix,
+    desiredPrefixTotal, desiredSuffixTotal,
+    untaggedDesiredSuffixBase, untaggedDesiredPrefixBase,
+  };
 }

@@ -1,13 +1,34 @@
+import { useState, useRef, useEffect } from 'react';
 import ItemInput from './components/ItemInput';
 import GenesisTree from './components/GenesisTree';
 import Results from './components/Results';
+import AboutPanel from './components/AboutPanel';
 import { useAppStore } from './store/app-store';
 
 export default function App() {
   const { pointBudget, setPointBudget, dataState, loadData } = useAppStore();
+  const [showAbout, setShowAbout] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(340);
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null);
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      if (!dragRef.current) return;
+      const dx = e.clientX - dragRef.current.startX;
+      setSidebarWidth(Math.min(600, Math.max(240, dragRef.current.startW + dx)));
+    }
+    function onMouseUp() { dragRef.current = null; }
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+      {showAbout && <AboutPanel onClose={() => setShowAbout(false)} />}
       {/* Header */}
       <header style={{
         borderBottom: '1px solid var(--border)',
@@ -25,7 +46,16 @@ export default function App() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          {/* Data load status */}
+          <button
+            onClick={() => setShowAbout(true)}
+            title="About / how it works"
+            style={{
+              fontSize: 12, padding: '4px 10px', borderRadius: 4, cursor: 'pointer',
+              border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-dim)',
+            }}
+          >
+            About
+          </button>
           {dataState === 'idle' && (
             <button onClick={loadData} style={{
               fontSize: 11, padding: '4px 10px', borderRadius: 4, cursor: 'pointer',
@@ -56,14 +86,14 @@ export default function App() {
       {/* Main layout */}
       <div style={{
         flex: 1, display: 'grid',
-        gridTemplateColumns: '340px 1fr',
+        gridTemplateColumns: `${sidebarWidth}px 5px 1fr`,
         gridTemplateRows: '1fr auto',
         gap: 0,
         overflow: 'hidden',
       }}>
         {/* Left sidebar */}
         <div style={{
-          borderRight: '1px solid var(--border)',
+          borderRight: 'none',
           display: 'flex', flexDirection: 'column',
           overflowY: 'auto',
         }}>
@@ -77,6 +107,19 @@ export default function App() {
             </Section>
           </div>
         </div>
+
+        {/* Drag handle */}
+        <div
+          onMouseDown={e => { dragRef.current = { startX: e.clientX, startW: sidebarWidth }; e.preventDefault(); }}
+          style={{
+            cursor: 'col-resize',
+            background: 'var(--border)',
+            transition: 'background 0.15s',
+            userSelect: 'none',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--gold)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'var(--border)')}
+        />
 
         {/* Tree visualization */}
         <div style={{ padding: 16, overflowY: 'auto' }}>

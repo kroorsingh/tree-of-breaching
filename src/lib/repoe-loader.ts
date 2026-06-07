@@ -42,18 +42,20 @@ let _baseItemsPromise: Promise<BaseItemsDB> | null = null;
 export async function loadMods(): Promise<ModsDB> {
   if (_mods) return _mods;
   if (_modsPromise) return _modsPromise;
-  _modsPromise = fetch('/data/mods.json')
+  _modsPromise = fetch(`${import.meta.env.BASE_URL}data/mods.json`)
     .then(r => { if (!r.ok) throw new Error(`Failed to load mods.json: ${r.status}`); return r.json(); })
-    .then(data => { _mods = data as ModsDB; return _mods; });
+    .then(data => { _mods = data as ModsDB; _modsPromise = null; return _mods; })
+    .catch(e => { _modsPromise = null; throw e; });
   return _modsPromise;
 }
 
 export async function loadBaseItems(): Promise<BaseItemsDB> {
   if (_baseItems) return _baseItems;
   if (_baseItemsPromise) return _baseItemsPromise;
-  _baseItemsPromise = fetch('/data/base_items.json')
+  _baseItemsPromise = fetch(`${import.meta.env.BASE_URL}data/base_items.json`)
     .then(r => { if (!r.ok) throw new Error(`Failed to load base_items.json: ${r.status}`); return r.json(); })
-    .then(data => { _baseItems = data as BaseItemsDB; return _baseItems; });
+    .then(data => { _baseItems = data as BaseItemsDB; _baseItemsPromise = null; return _baseItems; })
+    .catch(e => { _baseItemsPromise = null; throw e; });
   return _baseItemsPromise;
 }
 

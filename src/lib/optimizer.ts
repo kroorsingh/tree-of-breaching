@@ -1,5 +1,7 @@
 import { TREE_NODES, NODE_MAP, SLOT_TO_NODE, SATELLITE_TO_HUB, EXCLUSIVE_CLUSTERS } from '../data/genesis-tree';
+import { GENESIS_TAG_TO_IMPLICIT_TAG } from '../data/tag-boost-map';
 import type { TargetItem, OptimizationResult, NodeId, TreeNode } from '../data/types';
+import type { PoolContext } from './mod-pool';
 
 // ─── Path resolution ────────────────────────────────────────────────────────
 
@@ -25,28 +27,73 @@ function pathCost(targetId: NodeId, alreadyAllocated: Set<NodeId>): number {
   return path.filter(id => !alreadyAllocated.has(id)).length;
 }
 
-// ─── Scoring ────────────────────────────────────────────────────────────────
+// ─── Scoring ─────────────────────────────────────────────────────────────────
 
 /**
- * Score a single modTag node relative to the target item's desired tags.
- * Devoted nodes (multiplier > 1) that boost desired tags score positively.
- * Forsaken nodes (multiplier < 1) that reduce UNdesired tags also score positively
- * (they free up affix slots by reducing junk mods).
+ * Score a node using actual pool probability mathematics when pool context is available.
+ *
+ * The marginal probability improvement from allocating a node with tag T (internal) and
+ * multiplier M on pool P (prefix or suffix) is:
+ *   ΔP = (M-1) * (desiredByTag[T] * total - desiredTotal * tagWeight[T]) / total²
+ *
+ * This is derived from d/dM [ desiredWeight(M) / totalWeight(M) ].
+ *
+ * Positive cases:
+ *   - Devoted (M>1) when desired mods are over-represented in tag T vs overall pool
+ *   - Forsaken (M<1) when desired mods are UNDER-represented in tag T (including zero, e.g. spell suppression)
+ *
+ * Falls back to the heuristic model when no pool context is available.
  */
-function scoreNode(node: TreeNode, target: TargetItem): number {
+function scoreNode(node: TreeNode, target: TargetItem, ctx?: PoolContext): number {
+  if (!ctx) return scoreNodeHeuristic(node, target);
+
+  const { prefixTagWeights, suffixTagWeights, desiredPrefixByTag, desiredSuffixByTag,
+          totalPrefix, totalSuffix, desiredPrefixTotal, desiredSuffixTotal } = ctx;
+
+  let score = 0;
+
+  for (const effect of node.effects) {
+    if (effect.category !== 'modTag' || effect.tag === undefined) continue;
+    const internalTag = GENESIS_TAG_TO_IMPLICIT_TAG[effect.tag];
+    if (!internalTag) continue;
+    const M = effect.value;
+
+    if (totalPrefix > 0) {
+      const pT = prefixTagWeights.get(internalTag) ?? 0;
+      const dP = desiredPrefixByTag.get(internalTag) ?? 0;
+      if (pT > 0 || dP > 0) {
+        score += (M - 1) * (dP * totalPrefix - desiredPrefixTotal * pT) / (totalPrefix * totalPrefix);
+      }
+    }
+
+    if (totalSuffix > 0) {
+      const sT = suffixTagWeights.get(internalTag) ?? 0;
+      const dS = desiredSuffixByTag.get(internalTag) ?? 0;
+      if (sT > 0 || dS > 0) {
+        score += (M - 1) * (dS * totalSuffix - desiredSuffixTotal * sT) / (totalSuffix * totalSuffix);
+      }
+    }
+  }
+
+  return score;
+}
+
+/** Heuristic fallback used before mod pool data is loaded. */
+function scoreNodeHeuristic(node: TreeNode, target: TargetItem): number {
   let score = 0;
   const desiredTags = new Set(target.targetTags.map(t => t.tag));
+  const hasAnyTarget = target.targetTags.length > 0 || target.noTagMods?.prefix || target.noTagMods?.suffix;
 
   for (const effect of node.effects) {
     if (effect.category !== 'modTag' || effect.tag === undefined) continue;
     const isDesired = desiredTags.has(effect.tag);
     if (effect.value > 1 && isDesired) {
-      // Devoted boost to a desired tag: each required tag worth extra
       const isRequired = target.targetTags.find(t => t.tag === effect.tag)?.required ?? false;
       score += (effect.value - 1) * (isRequired ? 1.5 : 1.0);
     } else if (effect.value < 1 && !isDesired) {
-      // Forsaken reduction of an undesired tag: small bonus for clearing pool
-      score += (1 - effect.value) * 0.3;
+      // For no-tag targets, forsaking any tag is helpful — weight it more
+      const bonus = hasAnyTarget && target.targetTags.length === 0 ? 0.6 : 0.3;
+      score += (1 - effect.value) * bonus;
     }
   }
   return score;
@@ -58,28 +105,22 @@ function scoreNode(node: TreeNode, target: TargetItem): number {
 export function getLockedNodes(target: TargetItem): NodeId[] {
   const locked: NodeId[] = [];
 
-  // Gear type node for the slot
   const slotNode = SLOT_TO_NODE[target.itemClass];
   if (slotNode) locked.push(slotNode);
 
-  // Stat requirement nodes
   const { str, dex, int } = target.requirements;
-  // "More X Items" nodes boost toward the desired attribute type(s)
-  if (str && !dex && !int)  locked.push('g6');       // pure Str → Armour
-  else if (dex && !str && !int) locked.push('g3');    // pure Dex → Evasion
-  else if (int && !str && !dex) locked.push('g2');    // pure Int → ES
-  else if (str && int && !dex)  { locked.push('g6'); locked.push('g2'); }  // Str/Int → Armour/ES
-  else if (str && dex && !int)  { locked.push('g6'); locked.push('g3'); }  // Str/Dex → Armour/Eva
-  else if (dex && int && !str)  { locked.push('g3'); locked.push('g2'); }  // Dex/Int → Eva/ES
-  // tri-req: no stat filtering needed (Crusader-style)
+  if (str && !dex && !int)       locked.push('g6');
+  else if (dex && !str && !int)  locked.push('g3');
+  else if (int && !str && !dex)  locked.push('g2');
+  else if (str && int && !dex)  { locked.push('g6'); locked.push('g2'); }
+  else if (str && dex && !int)  { locked.push('g6'); locked.push('g3'); }
+  else if (dex && int && !str)  { locked.push('g3'); locked.push('g2'); }
 
   return locked;
 }
 
 // ─── Cluster exclusivity ────────────────────────────────────────────────────
 
-/** Returns true if allocating nodeId would conflict with an already-allocated
- *  sibling in the same exclusive cluster (only one satellite per hub allowed). */
 function clusterConflict(nodeId: NodeId, allocation: Set<NodeId>): boolean {
   const hubId = SATELLITE_TO_HUB[nodeId];
   if (!hubId) return false;
@@ -90,10 +131,13 @@ function clusterConflict(nodeId: NodeId, allocation: Set<NodeId>): boolean {
 
 // ─── Main optimizer ─────────────────────────────────────────────────────────
 
-export function optimize(target: TargetItem, pointBudget: number): OptimizationResult {
+export function optimize(
+  target: TargetItem,
+  pointBudget: number,
+  ctx?: PoolContext,
+): OptimizationResult {
   const locked = getLockedNodes(target);
 
-  // Build the set of nodes allocated by the locked path (with prerequisites)
   const lockedAllocation = new Set<NodeId>();
   for (const id of locked) {
     getRequiredPath(id).forEach(p => lockedAllocation.add(p));
@@ -102,7 +146,6 @@ export function optimize(target: TargetItem, pointBudget: number): OptimizationR
   const lockedCost = lockedAllocation.size;
 
   if (lockedCost > pointBudget) {
-    // Can't even afford the required nodes
     return {
       allocation: [...lockedAllocation],
       score: 0,
@@ -111,18 +154,15 @@ export function optimize(target: TargetItem, pointBudget: number): OptimizationR
     };
   }
 
-  // Candidate nodes: modTag nodes not already locked
   const candidates = TREE_NODES.filter(
     n => n.category === 'modTag' && !lockedAllocation.has(n.id)
   );
 
-  // Score each candidate
   const scored = candidates
-    .map(node => ({ node, score: scoreNode(node, target), cost: pathCost(node.id, lockedAllocation) }))
+    .map(node => ({ node, score: scoreNode(node, target, ctx), cost: pathCost(node.id, lockedAllocation) }))
     .filter(c => c.score > 0)
     .sort((a, b) => (b.score / b.cost) - (a.score / a.cost));
 
-  // Greedy allocation: add highest score-per-point candidate
   const allocation = new Set<NodeId>(lockedAllocation);
   const breakdown: OptimizationResult['breakdown'] = [];
   let remaining = pointBudget - lockedCost;

@@ -81,6 +81,12 @@ export interface TargetItem {
   /** Stat requirements indicate the armor sub-type (str → armour, dex → evasion, int → es) */
   requirements: { str: boolean; dex: boolean; int: boolean };
   targetTags: TargetTag[];
+  /**
+   * Signals that the user is also targeting one or more mods with no Genesis boostable tags
+   * (e.g. Spell Suppression). The optimizer responds by valuing forsaken nodes that reduce
+   * the affix pool, increasing the no-tag mod's relative share.
+   */
+  noTagMods?: { prefix: boolean; suffix: boolean };
   /** Original parsed item, present for import path */
   sourceItem?: ParsedItem;
 }

@@ -1,7 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { parseAdvancedCopy } from '../../lib/item-parser';
 import { useAppStore } from '../../store/app-store';
-import { BOOSTABLE_TAGS, GEAR_SLOTS } from '../../data/genesis-tree';
+import { GEAR_SLOTS } from '../../data/genesis-tree';
+import type { GearSlot } from '../../data/genesis-tree';
+import {
+  CURATED_MODS, ARMOUR_SLOTS_SET,
+  DEFENSE_OPTIONS, DEFENSE_TO_REQS,
+} from '../../data/curated-mods';
+import type { CuratedMod, DefenseType } from '../../data/curated-mods';
+import { getItemTags } from '../../data/slot-defense-tags';
+import { loadMods, getSpawnWeight } from '../../lib/repoe-loader';
 import type { TargetItem, TargetTag } from '../../data/types';
 
 type Tab = 'paste' | 'manual';
@@ -117,91 +125,261 @@ function PasteTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
 
 function ManualTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
   const [slot, setSlot] = useState<string>(GEAR_SLOTS[0]);
-  const [reqStr, setReqStr] = useState(false);
-  const [reqDex, setReqDex] = useState(false);
-  const [reqInt, setReqInt] = useState(false);
-  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+  const [defenseType, setDefenseType] = useState<DefenseType>('Armour');
+  const [prefixes, setPrefixes] = useState<string[]>([]);
+  const [suffixes, setSuffixes] = useState<string[]>([]);
+  const [validModIds, setValidModIds] = useState<Set<string> | null>(null);
+  const [modsLoading, setModsLoading] = useState(true);
 
-  function toggleTag(tag: string) {
-    setSelectedTags(prev => {
-      const next = new Set(prev);
-      if (next.has(tag)) next.delete(tag); else next.add(tag);
-      return next;
+  const isArmourSlot = ARMOUR_SLOTS_SET.has(slot);
+
+  // Rebuild valid-mod set from mods.json spawn_weights whenever slot or defense type changes.
+  // loadMods() is cached after the first call — subsequent changes are near-instant.
+  useEffect(() => {
+    setModsLoading(true);
+    const itemTags = getItemTags(slot as GearSlot, isArmourSlot ? defenseType : undefined);
+    loadMods().then(mods => {
+      const valid = new Set<string>();
+      for (const mod of CURATED_MODS) {
+        const modData = mods[mod.repoeModId];
+        if (modData && getSpawnWeight(modData.spawn_weights, itemTags) > 0) {
+          valid.add(mod.id);
+        }
+      }
+      setPrefixes(p => p.filter(id => valid.has(id)));
+      setSuffixes(s => s.filter(id => valid.has(id)));
+      setValidModIds(valid);
+      setModsLoading(false);
+    }).catch(() => {
+      setModsLoading(false);
     });
+  }, [slot, defenseType, isArmourSlot]);
+
+  function addMod(modType: 'prefix' | 'suffix', id: string) {
+    if (modType === 'prefix') setPrefixes(p => [...p, id]);
+    else setSuffixes(s => [...s, id]);
+  }
+
+  function removeMod(modType: 'prefix' | 'suffix', id: string) {
+    if (modType === 'prefix') setPrefixes(p => p.filter(x => x !== id));
+    else setSuffixes(s => s.filter(x => x !== id));
   }
 
   function handleSubmit() {
-    const targetTags: TargetTag[] = [...selectedTags].map(tag => ({ tag, required: true }));
-    onSubmit({
-      itemClass: slot,
-      requirements: { str: reqStr, dex: reqDex, int: reqInt },
-      targetTags,
-    });
+    const allSelected = [...prefixes, ...suffixes];
+    const tagSet = new Set<string>();
+    for (const id of allSelected) {
+      CURATED_MODS.find(m => m.id === id)?.tags.forEach(t => tagSet.add(t));
+    }
+    const targetTags: TargetTag[] = [...tagSet].map(tag => ({ tag, required: true }));
+    const requirements = isArmourSlot ? DEFENSE_TO_REQS[defenseType] : { str: false, dex: false, int: false };
+    onSubmit({ itemClass: slot, requirements, targetTags });
   }
 
+  const canSubmit = prefixes.length + suffixes.length > 0;
+
   return (
-    <div className="flex flex-col gap-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+      {/* Slot */}
       <div>
         <Label>Gear Slot</Label>
-        <select
-          value={slot}
-          onChange={e => setSlot(e.target.value)}
-          style={selectStyle}
-        >
+        <select value={slot} onChange={e => setSlot(e.target.value)} style={selectStyle}>
           {GEAR_SLOTS.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
 
-      <div>
-        <Label>Attribute Requirements (determines armor sub-type)</Label>
-        <div className="flex gap-3 mt-1">
-          {(['str', 'dex', 'int'] as const).map(attr => {
-            const checked = attr === 'str' ? reqStr : attr === 'dex' ? reqDex : reqInt;
-            const setter  = attr === 'str' ? setReqStr : attr === 'dex' ? setReqDex : setReqInt;
-            const label   = attr === 'str' ? 'Strength (Armour)' : attr === 'dex' ? 'Dexterity (Evasion)' : 'Intelligence (ES)';
-            return (
-              <label key={attr} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: 'var(--text)' }}>
-                <input type="checkbox" checked={checked} onChange={e => setter(e.target.checked)}
-                  style={{ accentColor: 'var(--gold)', width: 14, height: 14 }} />
-                {label}
-              </label>
-            );
-          })}
+      {/* Defense type — armour slots only */}
+      {isArmourSlot && (
+        <div>
+          <Label>Defense Type</Label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 2 }}>
+            {DEFENSE_OPTIONS.map(dt => {
+              const active = defenseType === dt;
+              return (
+                <button
+                  key={dt}
+                  onClick={() => setDefenseType(dt)}
+                  style={{
+                    padding: '4px 10px', borderRadius: 12, fontSize: 12, cursor: 'pointer',
+                    border: '1px solid',
+                    borderColor: active ? 'var(--gold)' : 'var(--border)',
+                    background: active ? 'var(--node-recommended)' : 'var(--surface2)',
+                    color: active ? 'var(--gold)' : 'var(--text-dim)',
+                    fontWeight: active ? 600 : 400,
+                  }}
+                >
+                  {dt}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div>
-        <Label>Desired Mod Tags</Label>
-        <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2, marginBottom: 6 }}>
-          Select the mod categories you want to land on the item.
-        </p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {BOOSTABLE_TAGS.map(tag => {
-            const active = selectedTags.has(tag);
-            return (
-              <button
-                key={tag}
-                onClick={() => toggleTag(tag)}
-                style={{
-                  padding: '4px 10px', borderRadius: 12, fontSize: 12, cursor: 'pointer',
-                  border: '1px solid',
-                  borderColor: active ? 'var(--gold)' : 'var(--border)',
-                  background: active ? 'var(--node-recommended)' : 'var(--surface2)',
-                  color: active ? 'var(--gold)' : 'var(--text-dim)',
-                  fontWeight: active ? 600 : 400,
-                  transition: 'all 0.1s',
-                }}
-              >
-                {tag}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      {/* Prefixes */}
+      <ModSection
+        label="Prefixes"
+        modType="prefix"
+        selected={prefixes}
+        validModIds={validModIds}
+        loading={modsLoading}
+        onAdd={id => addMod('prefix', id)}
+        onRemove={id => removeMod('prefix', id)}
+      />
 
-      <button onClick={handleSubmit} disabled={selectedTags.size === 0} style={primaryBtnStyle(selectedTags.size === 0)}>
+      {/* Suffixes */}
+      <ModSection
+        label="Suffixes"
+        modType="suffix"
+        selected={suffixes}
+        validModIds={validModIds}
+        loading={modsLoading}
+        onAdd={id => addMod('suffix', id)}
+        onRemove={id => removeMod('suffix', id)}
+      />
+
+      <button onClick={handleSubmit} disabled={!canSubmit} style={primaryBtnStyle(!canSubmit)}>
         Optimize Tree
       </button>
+    </div>
+  );
+}
+
+function ModSection({
+  label, modType, selected, validModIds, loading, onAdd, onRemove,
+}: {
+  label: string;
+  modType: CuratedMod['modType'];
+  selected: string[];
+  validModIds: Set<string> | null;
+  loading: boolean;
+  onAdd: (id: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const options = validModIds
+    ? CURATED_MODS.filter(m => m.modType === modType && !selected.includes(m.id) && validModIds.has(m.id))
+    : [];
+  const canAdd = selected.length < 3;
+
+  return (
+    <div>
+      <Label>
+        {label}{' '}
+        <span style={{ fontWeight: 400, color: 'var(--text-dim)', textTransform: 'none', letterSpacing: 0 }}>
+          ({selected.length}/3)
+        </span>
+      </Label>
+
+      {/* Selected chips */}
+      {selected.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+          {selected.map(id => {
+            const mod = CURATED_MODS.find(m => m.id === id);
+            return (
+              <span
+                key={id}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '3px 8px 3px 10px', borderRadius: 12, fontSize: 12,
+                  border: '1px solid var(--gold)', background: 'var(--node-recommended)',
+                  color: 'var(--gold)',
+                }}
+              >
+                {mod?.displayName}
+                <button
+                  onClick={() => onRemove(id)}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--gold)', fontSize: 13, lineHeight: 1, padding: 0,
+                    opacity: 0.7,
+                  }}
+                >×</button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {loading && (
+        <p style={{ fontSize: 12, color: 'var(--text-dim)', fontStyle: 'italic' }}>Loading mods…</p>
+      )}
+
+      {!loading && canAdd && options.length > 0 && (
+        <ModSearch
+          options={options}
+          placeholder={`Search ${label.toLowerCase()}…`}
+          onSelect={onAdd}
+        />
+      )}
+
+      {!loading && canAdd && options.length === 0 && (
+        <p style={{ fontSize: 12, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+          No more {label.toLowerCase()} available for this slot.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ModSearch({
+  options, placeholder, onSelect,
+}: {
+  options: CuratedMod[];
+  placeholder: string;
+  onSelect: (id: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const filtered = query.trim()
+    ? options.filter(m => m.displayName.toLowerCase().includes(query.toLowerCase()))
+    : options;
+
+  function pick(id: string) {
+    onSelect(id);
+    setQuery('');
+    setOpen(false);
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        type="text"
+        value={query}
+        placeholder={placeholder}
+        onChange={e => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        style={{
+          ...selectStyle,
+          outline: open ? '1px solid var(--border)' : 'none',
+        }}
+      />
+      {open && filtered.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+          background: 'var(--surface2)', border: '1px solid var(--border)',
+          borderTop: 'none', borderRadius: '0 0 4px 4px',
+          maxHeight: 200, overflowY: 'auto',
+        }}>
+          {filtered.map(m => (
+            <div
+              key={m.id}
+              onMouseDown={() => pick(m.id)}
+              style={{
+                padding: '6px 10px', fontSize: 13, cursor: 'pointer',
+                color: 'var(--text)',
+                borderBottom: '1px solid var(--border)',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              {m.displayName}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
