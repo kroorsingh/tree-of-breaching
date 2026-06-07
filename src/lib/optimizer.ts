@@ -5,6 +5,9 @@ import type { PoolContext } from './mod-pool';
 
 // ─── Path resolution ────────────────────────────────────────────────────────
 
+// Hub nodes are free — allocating a hub + one satellite costs 1 point total.
+const HUB_SET = new Set(Object.keys(EXCLUSIVE_CLUSTERS));
+
 /** Returns the full set of node IDs that must be allocated to reach `target`,
  *  including the target itself. Traverses parent chains to find all prerequisites. */
 export function getRequiredPath(targetId: NodeId): NodeId[] {
@@ -21,10 +24,11 @@ export function getRequiredPath(targetId: NodeId): NodeId[] {
 }
 
 /** Total point cost to allocate a node including its prerequisite path,
- *  given already-allocated nodes (they don't need to be paid again). */
+ *  given already-allocated nodes (they don't need to be paid again).
+ *  Hub nodes are free — they are allocated but cost 0 points. */
 function pathCost(targetId: NodeId, alreadyAllocated: Set<NodeId>): number {
   const path = getRequiredPath(targetId);
-  return path.filter(id => !alreadyAllocated.has(id)).length;
+  return path.filter(id => !alreadyAllocated.has(id) && !HUB_SET.has(id)).length;
 }
 
 // ─── Scoring ─────────────────────────────────────────────────────────────────
@@ -143,7 +147,7 @@ export function optimize(
     getRequiredPath(id).forEach(p => lockedAllocation.add(p));
   }
 
-  const lockedCost = lockedAllocation.size;
+  const lockedCost = [...lockedAllocation].filter(id => !HUB_SET.has(id)).length;
 
   if (lockedCost > pointBudget) {
     return {
