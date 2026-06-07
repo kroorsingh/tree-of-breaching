@@ -168,8 +168,20 @@ function ManualTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
   function handleSubmit() {
     const prefixTagSet = new Set<string>();
     const suffixTagSet = new Set<string>();
-    for (const id of prefixes) CURATED_MODS.find(m => m.id === id)?.tags.forEach(t => prefixTagSet.add(t));
-    for (const id of suffixes) CURATED_MODS.find(m => m.id === id)?.tags.forEach(t => suffixTagSet.add(t));
+    let hasNoTagPrefix = false;
+    let hasNoTagSuffix = false;
+    for (const id of prefixes) {
+      const mod = CURATED_MODS.find(m => m.id === id);
+      if (!mod) continue;
+      if (mod.tags.length === 0) hasNoTagPrefix = true;
+      else mod.tags.forEach(t => prefixTagSet.add(t));
+    }
+    for (const id of suffixes) {
+      const mod = CURATED_MODS.find(m => m.id === id);
+      if (!mod) continue;
+      if (mod.tags.length === 0) hasNoTagSuffix = true;
+      else mod.tags.forEach(t => suffixTagSet.add(t));
+    }
     const allTagSet = new Set([...prefixTagSet, ...suffixTagSet]);
     const toTargetTags = (s: Set<string>): TargetTag[] => [...s].map(tag => ({ tag, required: true }));
     const requirements = isArmourSlot ? DEFENSE_TO_REQS[defenseType] : { str: false, dex: false, int: false };
@@ -178,6 +190,7 @@ function ManualTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
       targetTags: toTargetTags(allTagSet),
       prefixTargetTags: toTargetTags(prefixTagSet),
       suffixTargetTags: toTargetTags(suffixTagSet),
+      noTagMods: { prefix: hasNoTagPrefix, suffix: hasNoTagSuffix },
     });
   }
 
