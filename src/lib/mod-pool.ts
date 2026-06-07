@@ -182,14 +182,20 @@ export function calcTagProbabilities(
 export interface PoolContext {
   prefixTagWeights: Map<string, number>;
   suffixTagWeights: Map<string, number>;
-  desiredPrefixByTag: Map<string, number>;
-  desiredSuffixByTag: Map<string, number>;
   totalPrefix: number;
   totalSuffix: number;
-  /** Total desired prefix weight (each mod counted once, with required×1.5 scaling) */
-  desiredPrefixTotal: number;
-  /** Total desired suffix weight */
-  desiredSuffixTotal: number;
+  /**
+   * For each tag, the sum of reqFactors (1.5 if required, 1.0 otherwise) across all distinct
+   * desired prefix/suffix mods that carry that tag. Each mod is counted once regardless of its
+   * base weight — the tag's pool share (W_T/W) in the scoring formula already encodes rarity,
+   * so per-mod weight would double-count it in the wrong direction.
+   */
+  desiredPrefixCountByTag: Map<string, number>;
+  desiredSuffixCountByTag: Map<string, number>;
+  /** Sum of reqFactors across all distinct desired prefix mods */
+  desiredPrefixCountTotal: number;
+  /** Sum of reqFactors across all distinct desired suffix mods */
+  desiredSuffixCountTotal: number;
   /** Base weight of all desired suffix mods with no implicit_tags (unaffected by any tree node) */
   untaggedDesiredSuffixBase: number;
   /** Base weight of all desired prefix mods with no implicit_tags */
@@ -206,20 +212,28 @@ export function computePoolContext(
   target: TargetItem,
   maxItemLevel = 100,
 ): PoolContext {
-  const desiredInternalTags = new Map<string, number>();
-  for (const { tag, required } of target.targetTags) {
-    const internal = GENESIS_TAG_TO_IMPLICIT_TAG[tag];
-    if (internal) desiredInternalTags.set(internal, required ? 1.5 : 1.0);
-  }
+  // Use pool-specific tag sets when available so that suffix-only tags (e.g. "Attack" from
+  // Attack Speed) don't inflate the desired prefix mod count, and vice versa.
+  const buildInternalTagMap = (tags: TargetTag[]): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const { tag, required } of tags) {
+      const internal = GENESIS_TAG_TO_IMPLICIT_TAG[tag];
+      if (internal) m.set(internal, required ? 1.5 : 1.0);
+    }
+    return m;
+  };
+
+  const desiredPrefixInternalTags = buildInternalTagMap(target.prefixTargetTags ?? target.targetTags);
+  const desiredSuffixInternalTags = buildInternalTagMap(target.suffixTargetTags ?? target.targetTags);
 
   const prefixTagWeights = new Map<string, number>();
   const suffixTagWeights = new Map<string, number>();
-  const desiredPrefixByTag = new Map<string, number>();
-  const desiredSuffixByTag = new Map<string, number>();
+  const desiredPrefixCountByTag = new Map<string, number>();
+  const desiredSuffixCountByTag = new Map<string, number>();
   let totalPrefix = 0;
   let totalSuffix = 0;
-  let desiredPrefixTotal = 0;
-  let desiredSuffixTotal = 0;
+  let desiredPrefixCountTotal = 0;
+  let desiredSuffixCountTotal = 0;
 
   const countedDesiredPrefix = new Set<string>();
   const countedDesiredSuffix = new Set<string>();
@@ -243,6 +257,7 @@ export function computePoolContext(
     }
 
     const implicitTags = mod.implicit_tags ?? [];
+    const desiredInternalTags = isPrefix ? desiredPrefixInternalTags : desiredSuffixInternalTags;
     const matchingTags = implicitTags.filter(t => desiredInternalTags.has(t));
     const isNoTagDesired =
       implicitTags.length === 0 &&
@@ -253,18 +268,17 @@ export function computePoolContext(
       const counted = isPrefix ? countedDesiredPrefix : countedDesiredSuffix;
       if (!counted.has(id)) {
         counted.add(id);
+        // reqFactor weights required mods (1.5×) vs optional (1.0×) in the count
         let reqFactor = 1.0;
         for (const t of matchingTags) {
           reqFactor = Math.max(reqFactor, desiredInternalTags.get(t) ?? 1.0);
         }
-        const w = baseWeight * reqFactor;
-        if (isPrefix) desiredPrefixTotal += w;
-        else desiredSuffixTotal += w;
+        if (isPrefix) desiredPrefixCountTotal += reqFactor;
+        else desiredSuffixCountTotal += reqFactor;
 
-        const desiredByTag = isPrefix ? desiredPrefixByTag : desiredSuffixByTag;
+        const desiredCountByTag = isPrefix ? desiredPrefixCountByTag : desiredSuffixCountByTag;
         for (const t of matchingTags) {
-          const factor = desiredInternalTags.get(t) ?? 1.0;
-          desiredByTag.set(t, (desiredByTag.get(t) ?? 0) + baseWeight * factor);
+          desiredCountByTag.set(t, (desiredCountByTag.get(t) ?? 0) + reqFactor);
         }
       }
     }
@@ -287,9 +301,9 @@ export function computePoolContext(
 
   return {
     prefixTagWeights, suffixTagWeights,
-    desiredPrefixByTag, desiredSuffixByTag,
     totalPrefix, totalSuffix,
-    desiredPrefixTotal, desiredSuffixTotal,
+    desiredPrefixCountByTag, desiredSuffixCountByTag,
+    desiredPrefixCountTotal, desiredSuffixCountTotal,
     untaggedDesiredSuffixBase, untaggedDesiredPrefixBase,
   };
 }

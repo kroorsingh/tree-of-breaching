@@ -73,16 +73,14 @@ function PasteTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
     if (!parsed) { setError('Could not parse item. Use Ctrl+Alt+C in PoE to copy.'); return; }
     if (!parsed.explicits.length) { setError('No explicit mods found. Make sure to use advanced copy (Ctrl+Alt+C).'); return; }
 
-    const targetTags: TargetTag[] = [];
-    const seen = new Set<string>();
+    const prefixTagSet = new Set<string>();
+    const suffixTagSet = new Set<string>();
     for (const mod of parsed.explicits) {
-      for (const tag of mod.tags) {
-        if (!seen.has(tag)) {
-          seen.add(tag);
-          targetTags.push({ tag, required: true });
-        }
-      }
+      const dest = mod.type === 'Prefix' ? prefixTagSet : suffixTagSet;
+      for (const tag of mod.tags) dest.add(tag);
     }
+    const allTagSet = new Set([...prefixTagSet, ...suffixTagSet]);
+    const toTargetTags = (s: Set<string>): TargetTag[] => [...s].map(tag => ({ tag, required: true }));
 
     onSubmit({
       itemClass: parsed.itemClass,
@@ -91,7 +89,9 @@ function PasteTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
         dex: (parsed.requirements.dex ?? 0) > 0,
         int: (parsed.requirements.int ?? 0) > 0,
       },
-      targetTags,
+      targetTags: toTargetTags(allTagSet),
+      prefixTargetTags: toTargetTags(prefixTagSet),
+      suffixTargetTags: toTargetTags(suffixTagSet),
       sourceItem: parsed,
     });
   }
@@ -166,14 +166,19 @@ function ManualTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
   }
 
   function handleSubmit() {
-    const allSelected = [...prefixes, ...suffixes];
-    const tagSet = new Set<string>();
-    for (const id of allSelected) {
-      CURATED_MODS.find(m => m.id === id)?.tags.forEach(t => tagSet.add(t));
-    }
-    const targetTags: TargetTag[] = [...tagSet].map(tag => ({ tag, required: true }));
+    const prefixTagSet = new Set<string>();
+    const suffixTagSet = new Set<string>();
+    for (const id of prefixes) CURATED_MODS.find(m => m.id === id)?.tags.forEach(t => prefixTagSet.add(t));
+    for (const id of suffixes) CURATED_MODS.find(m => m.id === id)?.tags.forEach(t => suffixTagSet.add(t));
+    const allTagSet = new Set([...prefixTagSet, ...suffixTagSet]);
+    const toTargetTags = (s: Set<string>): TargetTag[] => [...s].map(tag => ({ tag, required: true }));
     const requirements = isArmourSlot ? DEFENSE_TO_REQS[defenseType] : { str: false, dex: false, int: false };
-    onSubmit({ itemClass: slot, requirements, targetTags });
+    onSubmit({
+      itemClass: slot, requirements,
+      targetTags: toTargetTags(allTagSet),
+      prefixTargetTags: toTargetTags(prefixTagSet),
+      suffixTargetTags: toTargetTags(suffixTagSet),
+    });
   }
 
   const canSubmit = prefixes.length + suffixes.length > 0;

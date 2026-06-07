@@ -51,8 +51,10 @@ function pathCost(targetId: NodeId, alreadyAllocated: Set<NodeId>): number {
 function scoreNode(node: TreeNode, target: TargetItem, ctx?: PoolContext): number {
   if (!ctx) return scoreNodeHeuristic(node, target);
 
-  const { prefixTagWeights, suffixTagWeights, desiredPrefixByTag, desiredSuffixByTag,
-          totalPrefix, totalSuffix, desiredPrefixTotal, desiredSuffixTotal } = ctx;
+  const { prefixTagWeights, suffixTagWeights,
+          desiredPrefixCountByTag, desiredSuffixCountByTag,
+          desiredPrefixCountTotal, desiredSuffixCountTotal,
+          totalPrefix, totalSuffix } = ctx;
 
   let score = 0;
 
@@ -62,19 +64,27 @@ function scoreNode(node: TreeNode, target: TargetItem, ctx?: PoolContext): numbe
     if (!internalTag) continue;
     const M = effect.value;
 
+    // Score = (M-1) * (nDesiredWithTag - nDesiredTotal * tagPoolShare)
+    //
+    // Derived from d/dM Σ log(pool_share_i) for all desired mods i — the gradient of the
+    // log-product objective (maximise joint probability of all desired mods landing).
+    // Each distinct desired mod contributes equally (1 count); the tag's pool share term
+    // (W_T/W) naturally encodes rarity, so per-mod weight would double-count it incorrectly.
+    // Positive when desired mods are over-represented in this tag vs the overall pool.
+
     if (totalPrefix > 0) {
       const pT = prefixTagWeights.get(internalTag) ?? 0;
-      const dP = desiredPrefixByTag.get(internalTag) ?? 0;
-      if (pT > 0 || dP > 0) {
-        score += (M - 1) * (dP * totalPrefix - desiredPrefixTotal * pT) / (totalPrefix * totalPrefix);
+      const nP = desiredPrefixCountByTag.get(internalTag) ?? 0;
+      if (pT > 0 || nP > 0) {
+        score += (M - 1) * (nP - desiredPrefixCountTotal * pT / totalPrefix);
       }
     }
 
     if (totalSuffix > 0) {
       const sT = suffixTagWeights.get(internalTag) ?? 0;
-      const dS = desiredSuffixByTag.get(internalTag) ?? 0;
-      if (sT > 0 || dS > 0) {
-        score += (M - 1) * (dS * totalSuffix - desiredSuffixTotal * sT) / (totalSuffix * totalSuffix);
+      const nS = desiredSuffixCountByTag.get(internalTag) ?? 0;
+      if (sT > 0 || nS > 0) {
+        score += (M - 1) * (nS - desiredSuffixCountTotal * sT / totalSuffix);
       }
     }
   }

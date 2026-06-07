@@ -67,28 +67,37 @@ export default function AboutPanel({ onClose }: Props) {
               These are always included first.
             </li>
             <li>
-              <strong>Scores the rest</strong> — for each optional node, the tool calculates how much it
-              moves the needle on your desired mods, using real spawn-weight numbers from the game data:
+              <strong>Scores the rest</strong> — the goal is to maximise the joint probability of landing{' '}
+              <em>all</em> the mods you specified. This is equivalent to maximising the sum of log(pool share)
+              for each desired mod. For each optional node, the tool computes the gradient of that objective:
               <pre style={{
                 background: 'var(--surface2)', border: '1px solid var(--border)',
                 borderRadius: 4, padding: '10px 14px', fontSize: 12,
                 color: 'var(--text)', overflowX: 'auto', margin: '10px 0',
               }}>
-{`ΔP = (M−1) × (desired_tag_weight × total − desired_total × tag_weight) / total²`}
+{`score = (M−1) × (n_desired_with_tag − n_desired_total × tag_pool_share)`}
               </pre>
-              This is the exact rate of change in your hit probability as the node's multiplier M is applied.
               Breaking down the terms:
-              <ul style={{ paddingLeft: 18, marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <li><strong>M</strong> — the node's multiplier (e.g. 1.5 for a +50% Devoted node, 0.5 for a −50% Forsaken node)</li>
-                <li><strong>desired_tag_weight</strong> — total spawn weight of your wanted mods that belong to this tag</li>
-                <li><strong>total</strong> — total spawn weight of all mods competing for the slot</li>
-                <li><strong>desired_total</strong> — total spawn weight of all your wanted mods</li>
-                <li><strong>tag_weight</strong> — total spawn weight of all mods in this tag, wanted or not</li>
+              <ul style={{ paddingLeft: 18, marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <li><strong>M</strong> — the node's multiplier (e.g. 1.06 for +6% Devoted, 0.4 for −60% Forsaken)</li>
+                <li><strong>n_desired_with_tag</strong> — how many of your specified mods carry this tag</li>
+                <li><strong>n_desired_total</strong> — total number of your specified mods (in this pool)</li>
+                <li><strong>tag_pool_share</strong> — fraction of the full mod pool occupied by this tag (wanted mods + unwanted mods combined)</li>
               </ul>
               <p style={{ marginTop: 8 }}>
-                The key insight: a Devoted node helps when your desired mods are <em>concentrated</em> in
-                that tag relative to the pool overall. A Forsaken node helps when they're <em>absent</em> from
-                that tag — suppressing it clears out competition without hurting your targets.
+                Scoring by count rather than spawn weight is intentional: the tag's pool share already encodes
+                rarity, so weighting by individual mod weight would double-count it in the wrong direction
+                (favouring common mods when rarer ones need more help).
+              </p>
+              <p style={{ marginTop: 8 }}>
+                Prefix and suffix pools are scored <em>separately and simultaneously</em>. A node that helps
+                one of your suffix mods but grows a pool of unwanted prefix mods gets penalised for the prefix
+                side — so the tool won't suggest "attack modifier chance" just because Attack Speed has the
+                attack tag, if you haven't asked for any attack prefixes.
+              </p>
+              <p style={{ marginTop: 8 }}>
+                Positive score: the node shifts the item's overall hit probability up.{' '}
+                Negative: it would make things worse (not recommended).
               </p>
             </li>
             <li>

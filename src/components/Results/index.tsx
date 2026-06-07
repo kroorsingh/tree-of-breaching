@@ -24,19 +24,23 @@ export default function Results() {
         borderRadius: 4, padding: '10px 14px',
       }}>
         <p style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
-          Optimization Score
+          Allocation Summary
         </p>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-          <span style={{ fontSize: 28, fontWeight: 700, color: 'var(--gold)' }}>
-            {result.score.toFixed(4)}
+          <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--gold)' }}>
+            {result.breakdown.length} node{result.breakdown.length !== 1 ? 's' : ''} recommended
           </span>
           <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
             {result.pointsUsed}/{pointBudget} pts
             {unusedPoints > 0 && ` · ${unusedPoints} unspent`}
           </span>
         </div>
-        <p style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
-          ΔP score — marginal probability gain summed over all recommended nodes
+        <p style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4, lineHeight: 1.5 }}>
+          These nodes give you the best odds of hitting your target mods when rolling the item.
+          Exact per-mod odds are shown in <strong style={{ color: 'var(--text)' }}>Mod Pool Shares</strong> below.
+        </p>
+        <p style={{ fontSize: 10, color: 'var(--text-dim)', opacity: 0.5, marginTop: 3 }}>
+          Efficiency score: {result.score.toFixed(3)}
         </p>
       </div>
 
