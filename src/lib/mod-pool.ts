@@ -1,7 +1,7 @@
 import type { ModsDB, BaseItemsDB, RePoEMod } from './repoe-loader';
 import { getSpawnWeight, findBaseByName, getBasesByClass } from './repoe-loader';
 import { GENESIS_TAG_TO_IMPLICIT_TAG } from '../data/tag-boost-map';
-import type { NodeId, TargetItem } from '../data/types';
+import type { NodeId, TargetItem, TargetTag } from '../data/types';
 import { NODE_MAP } from '../data/genesis-tree';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
