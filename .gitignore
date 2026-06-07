@@ -12,11 +12,6 @@ dist
 dist-ssr
 *.local
 
-# RePoE data files — large (~40MB), updated manually by the user
-public/data/mods.json
-public/data/base_items.json
-public/data/tags.json
-
 # Claude Code local session state
 .claude/settings.local.json
 
