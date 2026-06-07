@@ -84,7 +84,8 @@ export function buildModPool(
   const suffixes: PoolEntry[] = [];
 
   for (const [id, mod] of Object.entries(mods)) {
-    // Only standard item crafting mods
+    // Only standard item crafting mods (exclude Path of Exile Royale variants)
+    if (id.includes('Royale')) continue;
     if (mod.domain !== 'item') continue;
     if (mod.generation_type !== 'prefix' && mod.generation_type !== 'suffix') continue;
     if (mod.is_essence_only) continue;
@@ -179,6 +180,22 @@ export function calcTagProbabilities(
  * where M is the node's multiplier (>1 for devoted, <1 for forsaken).
  * Positive ΔP means the node improves probability of hitting the target.
  */
+export interface BaseTypeStat {
+  /** Count of all bases for this item class that have this stat requirement */
+  total: number;
+  /** Count of bases that are both "desired" AND have this stat requirement */
+  desired: number;
+}
+
+export interface BaseTypeContext {
+  /** Total count of armour-typed bases for this item class */
+  total: number;
+  /** Count of bases that exactly match the desired requirement combination */
+  desired: number;
+  /** Per-stat breakdown for statReq node scoring */
+  byStatReq: { str: BaseTypeStat; dex: BaseTypeStat; int: BaseTypeStat };
+}
+
 export interface PoolContext {
   prefixTagWeights: Map<string, number>;
   suffixTagWeights: Map<string, number>;
@@ -200,6 +217,104 @@ export interface PoolContext {
   untaggedDesiredSuffixBase: number;
   /** Base weight of all desired prefix mods with no implicit_tags */
   untaggedDesiredPrefixBase: number;
+  /** Base type distribution for statReq node scoring. null if not applicable (non-armour or no specific req). */
+  baseType: BaseTypeContext | null;
+  /** Global gear type distribution for gearType node scoring. */
+  gearType: { classCounts: Map<string, number>; total: number } | null;
+}
+
+// Maps armour type tag to its attribute requirement flags
+const ARMOUR_TYPE_REQS: Record<string, { str: boolean; dex: boolean; int: boolean }> = {
+  str_armour:         { str: true,  dex: false, int: false },
+  dex_armour:         { str: false, dex: true,  int: false },
+  int_armour:         { str: false, dex: false, int: true  },
+  str_dex_armour:     { str: true,  dex: true,  int: false },
+  str_int_armour:     { str: true,  dex: false, int: true  },
+  dex_int_armour:     { str: false, dex: true,  int: true  },
+  str_dex_int_armour: { str: true,  dex: true,  int: true  },
+};
+
+// Item classes that Genesis can birth (based on gearType tree nodes)
+const GENESIS_ITEM_CLASSES = new Set([
+  'Shield', 'Helmet', 'Body Armour', 'Gloves', 'Boots',
+  'Amulet', 'Ring', 'Belt', 'Jewel',
+]);
+
+function computeBaseTypeContext(
+  baseItems: BaseItemsDB,
+  itemClass: string,
+  requirements: { str: boolean; dex: boolean; int: boolean }[],
+): BaseTypeContext | null {
+  // Determine if any acceptable combo has a stat requirement (= armour slot)
+  const hasAnyReq = requirements.some(r => r.str || r.dex || r.int);
+
+  if (hasAnyReq) {
+    // Armour slot: statReq nodes affect which base type within this item class you get.
+    // Use the local pool (bases of this class only).
+    // "Desired" = bases matching ANY of the acceptable requirement combos.
+    const bases = Object.values(baseItems).filter(b => b.item_class === itemClass);
+    let total = 0, desired = 0;
+    const byStatReq = {
+      str: { total: 0, desired: 0 },
+      dex: { total: 0, desired: 0 },
+      int: { total: 0, desired: 0 },
+    };
+
+    for (const base of bases) {
+      const tags = base.tags ?? [];
+      const typeTag = Object.keys(ARMOUR_TYPE_REQS).find(t => tags.includes(t));
+      if (!typeTag) continue;
+
+      const reqs = ARMOUR_TYPE_REQS[typeTag];
+      total++;
+
+      const isDesired = requirements.some(r => r.str === reqs.str && r.dex === reqs.dex && r.int === reqs.int);
+      if (isDesired) desired++;
+
+      for (const stat of ['str', 'dex', 'int'] as const) {
+        if (reqs[stat]) {
+          byStatReq[stat].total++;
+          if (isDesired) byStatReq[stat].desired++;
+        }
+      }
+    }
+
+    if (total === 0 || desired === 0) return null;
+    return { total, desired, byStatReq };
+  } else {
+    // Non-armour slot (Ring/Amulet/Belt/Jewel): statReq nodes affect the probability that Genesis
+    // births the right item class at all. All desired bases have no attribute requirements, so
+    // "Less X Items" always helps by shrinking the attribute-requiring competition.
+    // Use the global Genesis pool so scores reflect actual pool percentages.
+    const allBases = Object.values(baseItems).filter(b => GENESIS_ITEM_CLASSES.has(b.item_class));
+    let total = 0, desired = 0;
+    const byStatReq = {
+      str: { total: 0, desired: 0 },
+      dex: { total: 0, desired: 0 },
+      int: { total: 0, desired: 0 },
+    };
+
+    for (const base of allBases) {
+      const tags = base.tags ?? [];
+      const typeTag = Object.keys(ARMOUR_TYPE_REQS).find(t => tags.includes(t));
+      // Non-armour bases (rings, amulets, etc.) have no armour type tag → no attribute requirement
+      const reqs = typeTag ? ARMOUR_TYPE_REQS[typeTag] : { str: false, dex: false, int: false };
+
+      total++;
+      const isDesired = base.item_class === itemClass;
+      if (isDesired) desired++;
+
+      for (const stat of ['str', 'dex', 'int'] as const) {
+        if (reqs[stat]) {
+          byStatReq[stat].total++;
+          if (isDesired) byStatReq[stat].desired++;
+        }
+      }
+    }
+
+    if (total === 0 || desired === 0) return null;
+    return { total, desired, byStatReq };
+  }
 }
 
 /**
@@ -211,6 +326,7 @@ export function computePoolContext(
   itemTags: string[],
   target: TargetItem,
   maxItemLevel = 100,
+  baseItems?: BaseItemsDB,
 ): PoolContext {
   // Use pool-specific tag sets when available so that suffix-only tags (e.g. "Attack" from
   // Attack Speed) don't inflate the desired prefix mod count, and vice versa.
@@ -239,6 +355,7 @@ export function computePoolContext(
   const countedDesiredSuffix = new Set<string>();
 
   for (const [id, mod] of Object.entries(mods)) {
+    if (id.includes('Royale')) continue;
     if (mod.domain !== 'item') continue;
     if (mod.generation_type !== 'prefix' && mod.generation_type !== 'suffix') continue;
     if (mod.is_essence_only) continue;
@@ -299,11 +416,28 @@ export function computePoolContext(
     }
   }
 
+  const baseType = (baseItems && target.requirements?.length)
+    ? computeBaseTypeContext(baseItems, target.itemClass, target.requirements)
+    : null;
+
+  let gearType: PoolContext['gearType'] = null;
+  if (baseItems) {
+    const classCounts = new Map<string, number>();
+    let total = 0;
+    for (const base of Object.values(baseItems)) {
+      if (!GENESIS_ITEM_CLASSES.has(base.item_class)) continue;
+      classCounts.set(base.item_class, (classCounts.get(base.item_class) ?? 0) + 1);
+      total++;
+    }
+    gearType = { classCounts, total };
+  }
+
   return {
     prefixTagWeights, suffixTagWeights,
     totalPrefix, totalSuffix,
     desiredPrefixCountByTag, desiredSuffixCountByTag,
     desiredPrefixCountTotal, desiredSuffixCountTotal,
     untaggedDesiredSuffixBase, untaggedDesiredPrefixBase,
+    baseType, gearType,
   };
 }

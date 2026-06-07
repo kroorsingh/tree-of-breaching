@@ -101,8 +101,8 @@ export const CURATED_MODS: CuratedMod[] = [
   { id: 'flat_armour_belt',   displayName: 'Armour Rating (belt)',                    modType: 'prefix', tags: ['Defense'],                                 repoeModId: 'IncreasedPhysicalDamageReductionRating1' },
 
   // Shield block — prefix, spawns on non-ES / non-Ev/ES shields
-  { id: 'block',              displayName: 'Block Chance',                            modType: 'prefix', tags: ['Defense'],                                 repoeModId: 'LocalIncreasedBlockPercentage1' },
-  { id: 'spell_block',        displayName: 'Spell Block Chance',                      modType: 'prefix', tags: ['Defense'],                                 repoeModId: 'ShieldSpellBlockPercentage1' },
+  { id: 'block',              displayName: 'Block Chance',                            modType: 'prefix', tags: [],                                         repoeModId: 'LocalIncreasedBlockPercentage1' },
+  { id: 'spell_block',        displayName: 'Spell Block Chance',                      modType: 'prefix', tags: [],                                         repoeModId: 'ShieldSpellBlockPercentage1' },
 
   // Added damage to attacks — ring/amulet/gloves
   { id: 'phys_dmg',           displayName: 'Added Physical Damage to Attacks',        modType: 'prefix', tags: ['Physical', 'Attack'],                      repoeModId: 'AddedPhysicalDamage1' },
@@ -111,7 +111,7 @@ export const CURATED_MODS: CuratedMod[] = [
   { id: 'lightning_dmg',      displayName: 'Added Lightning Damage to Attacks',       modType: 'prefix', tags: ['Lightning', 'Attack'],                     repoeModId: 'AddedLightningDamage1' },
 
   // Elemental damage with attack skills % — ring/amulet/belt
-  { id: 'ele_dmg_attacks',    displayName: 'Elemental Damage with Attacks',           modType: 'prefix', tags: ['Fire', 'Cold', 'Lightning', 'Attack'],     repoeModId: 'WeaponElementalDamage1' },
+  { id: 'ele_dmg_attacks',    displayName: 'Elemental Damage with Attacks',           modType: 'prefix', tags: ['Attack'],                                  repoeModId: 'WeaponElementalDamage1' },
 
   // Spell damage — amulet only (SpellDamage1) or ES shield only (SpellDamageOnWeapon1)
   { id: 'spell_dmg',          displayName: 'Increased Spell Damage %',               modType: 'prefix', tags: ['Caster'],                                  repoeModId: 'SpellDamage1' },
@@ -124,7 +124,7 @@ export const CURATED_MODS: CuratedMod[] = [
   { id: 'move_speed',         displayName: 'Movement Speed',                         modType: 'prefix', tags: ['Speed'],                                   repoeModId: 'MovementVelocity1' },
 
   // Belt prefixes
-  { id: 'flask_effect',       displayName: 'Flask Effect',                           modType: 'prefix', tags: ['Life'],                                    repoeModId: 'BeltIncreasedFlaskEffect1_' },
+  { id: 'flask_effect',       displayName: 'Flask Effect',                           modType: 'prefix', tags: [],                                         repoeModId: 'BeltIncreasedFlaskEffect1_' },
   { id: 'flask_life_recovery',displayName: 'Flask Life Recovery Rate',               modType: 'prefix', tags: ['Life'],                                    repoeModId: 'BeltFlaskLifeRecoveryRate1' },
 
   // ── Suffixes ─────────────────────────────────────────────────────────────────
@@ -134,14 +134,14 @@ export const CURATED_MODS: CuratedMod[] = [
   { id: 'cold_res',           displayName: 'Cold Resistance',                        modType: 'suffix', tags: ['Cold', 'Resistance'],                      repoeModId: 'ColdResist1' },
   { id: 'lightning_res',      displayName: 'Lightning Resistance',                   modType: 'suffix', tags: ['Lightning', 'Resistance'],                 repoeModId: 'LightningResist1' },
   { id: 'chaos_res',          displayName: 'Chaos Resistance',                       modType: 'suffix', tags: ['Chaos', 'Resistance'],                    repoeModId: 'ChaosResist1' },
-  { id: 'all_ele_res',        displayName: 'All Elemental Resistances',              modType: 'suffix', tags: ['Fire', 'Cold', 'Lightning', 'Resistance'], repoeModId: 'AllResistances1' },
+  { id: 'all_ele_res',        displayName: 'All Elemental Resistances',              modType: 'suffix', tags: ['Resistance'],                              repoeModId: 'AllResistances1' },
 
   // Maximum resistances — shield only
   { id: 'max_fire_res',       displayName: 'Maximum Fire Resistance',               modType: 'suffix', tags: ['Fire', 'Resistance'],                      repoeModId: 'MaximumFireResist1' },
   { id: 'max_cold_res',       displayName: 'Maximum Cold Resistance',               modType: 'suffix', tags: ['Cold', 'Resistance'],                      repoeModId: 'MaximumColdResist1' },
   { id: 'max_lightning_res',  displayName: 'Maximum Lightning Resistance',          modType: 'suffix', tags: ['Lightning', 'Resistance'],                 repoeModId: 'MaximumLightningResist1' },
   { id: 'max_chaos_res',      displayName: 'Maximum Chaos Resistance',              modType: 'suffix', tags: ['Chaos', 'Resistance'],                    repoeModId: 'MaximumChaosResist1' },
-  { id: 'max_all_res',        displayName: 'Maximum Resistances',                  modType: 'suffix', tags: ['Fire', 'Cold', 'Lightning', 'Resistance'], repoeModId: 'MaximumAllResist1_' },
+  { id: 'max_all_res',        displayName: 'Maximum Resistances',                  modType: 'suffix', tags: ['Resistance'],                              repoeModId: 'MaximumAllResist1_' },
 
   // Elemental damage % — ring/amulet
   { id: 'fire_dmg_pct',       displayName: 'Increased Fire Damage %',               modType: 'suffix', tags: ['Fire'],                                    repoeModId: 'FireDamagePercent1' },
@@ -160,7 +160,7 @@ export const CURATED_MODS: CuratedMod[] = [
   { id: 'life_regen_rate',    displayName: 'Increased Life Regeneration Rate %',   modType: 'suffix', tags: ['Life'],                                    repoeModId: 'LifeRegenerationRate1' },
   { id: 'life_leech',         displayName: 'Life Leech from Physical Attacks',     modType: 'suffix', tags: ['Life', 'Physical', 'Attack'],             repoeModId: 'LifeLeechPermyriadSuffix1' },
   { id: 'life_on_kill',       displayName: 'Life gained on Kill',                  modType: 'suffix', tags: ['Life'],                                    repoeModId: 'LifeGainedFromEnemyDeath1' },
-  { id: 'life_on_hit',        displayName: 'Life gained per Hit',                  modType: 'suffix', tags: ['Life'],                                    repoeModId: 'LifeGainPerTarget1' },
+  { id: 'life_on_hit',        displayName: 'Life gained per Hit',                  modType: 'suffix', tags: ['Life', 'Attack'],                          repoeModId: 'LifeGainPerTarget1' },
 
   // Mana
   { id: 'mana_regen',         displayName: 'Mana Regeneration Rate',               modType: 'suffix', tags: ['Mana'],                                    repoeModId: 'ManaRegeneration1' },
@@ -202,7 +202,7 @@ export const CURATED_MODS: CuratedMod[] = [
   { id: 'reduce_attr_reqs',   displayName: 'Reduced Attribute Requirements',       modType: 'suffix', tags: [],                                         repoeModId: 'ReducedLocalAttributeRequirements1' },
 
   // Belt suffixes
-  { id: 'flask_duration',     displayName: 'Flask Duration',                       modType: 'suffix', tags: ['Life'],                                    repoeModId: 'BeltIncreasedFlaskDuration1' },
-  { id: 'flask_charges',      displayName: 'Flask Charges Gained',                 modType: 'suffix', tags: ['Life'],                                    repoeModId: 'BeltIncreasedFlaskChargesGained1' },
+  { id: 'flask_duration',     displayName: 'Flask Duration',                       modType: 'suffix', tags: [],                                         repoeModId: 'BeltIncreasedFlaskDuration1' },
+  { id: 'flask_charges',      displayName: 'Flask Charges Gained',                 modType: 'suffix', tags: [],                                         repoeModId: 'BeltIncreasedFlaskChargesGained1' },
   { id: 'stun_duration',      displayName: 'Stun Duration on Enemies',             modType: 'suffix', tags: [],                                         repoeModId: 'StunDuration1' },
 ];

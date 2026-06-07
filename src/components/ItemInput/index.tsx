@@ -84,11 +84,11 @@ function PasteTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
 
     onSubmit({
       itemClass: parsed.itemClass,
-      requirements: {
+      requirements: [{
         str: (parsed.requirements.str ?? 0) > 0,
         dex: (parsed.requirements.dex ?? 0) > 0,
         int: (parsed.requirements.int ?? 0) > 0,
-      },
+      }],
       targetTags: toTargetTags(allTagSet),
       prefixTargetTags: toTargetTags(prefixTagSet),
       suffixTargetTags: toTargetTags(suffixTagSet),
@@ -125,7 +125,7 @@ function PasteTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
 
 function ManualTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
   const [slot, setSlot] = useState<string>(GEAR_SLOTS[0]);
-  const [defenseType, setDefenseType] = useState<DefenseType>('Armour');
+  const [defenseTypes, setDefenseTypes] = useState<DefenseType[]>(['Armour']);
   const [prefixes, setPrefixes] = useState<string[]>([]);
   const [suffixes, setSuffixes] = useState<string[]>([]);
   const [validModIds, setValidModIds] = useState<Set<string> | null>(null);
@@ -133,16 +133,18 @@ function ManualTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
 
   const isArmourSlot = ARMOUR_SLOTS_SET.has(slot);
 
-  // Rebuild valid-mod set from mods.json spawn_weights whenever slot or defense type changes.
-  // loadMods() is cached after the first call — subsequent changes are near-instant.
+  // Rebuild valid-mod set from mods.json spawn_weights whenever slot or defense types change.
+  // Union across all selected defense types so mods available on any acceptable base are shown.
   useEffect(() => {
     setModsLoading(true);
-    const itemTags = getItemTags(slot as GearSlot, isArmourSlot ? defenseType : undefined);
+    const tagSets = isArmourSlot
+      ? defenseTypes.map(dt => getItemTags(slot as GearSlot, dt))
+      : [getItemTags(slot as GearSlot)];
     loadMods().then(mods => {
       const valid = new Set<string>();
       for (const mod of CURATED_MODS) {
         const modData = mods[mod.repoeModId];
-        if (modData && getSpawnWeight(modData.spawn_weights, itemTags) > 0) {
+        if (modData && tagSets.some(tags => getSpawnWeight(modData.spawn_weights, tags) > 0)) {
           valid.add(mod.id);
         }
       }
@@ -153,7 +155,7 @@ function ManualTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
     }).catch(() => {
       setModsLoading(false);
     });
-  }, [slot, defenseType, isArmourSlot]);
+  }, [slot, defenseTypes, isArmourSlot]);
 
   function addMod(modType: 'prefix' | 'suffix', id: string) {
     if (modType === 'prefix') setPrefixes(p => [...p, id]);
@@ -184,7 +186,9 @@ function ManualTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
     }
     const allTagSet = new Set([...prefixTagSet, ...suffixTagSet]);
     const toTargetTags = (s: Set<string>): TargetTag[] => [...s].map(tag => ({ tag, required: true }));
-    const requirements = isArmourSlot ? DEFENSE_TO_REQS[defenseType] : { str: false, dex: false, int: false };
+    const requirements = isArmourSlot
+      ? defenseTypes.map(dt => DEFENSE_TO_REQS[dt])
+      : [{ str: false, dex: false, int: false }];
     onSubmit({
       itemClass: slot, requirements,
       targetTags: toTargetTags(allTagSet),
@@ -202,22 +206,30 @@ function ManualTab({ onSubmit }: { onSubmit: (item: TargetItem) => void }) {
       {/* Slot */}
       <div>
         <Label>Gear Slot</Label>
-        <select value={slot} onChange={e => setSlot(e.target.value)} style={selectStyle}>
+        <select value={slot} onChange={e => { setSlot(e.target.value); setDefenseTypes(['Armour']); }} style={selectStyle}>
           {GEAR_SLOTS.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
 
-      {/* Defense type — armour slots only */}
+      {/* Defense type — armour slots only, multi-select */}
       {isArmourSlot && (
         <div>
-          <Label>Defense Type</Label>
+          <Label>Defense Type <span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 400 }}>(select all acceptable)</span></Label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 2 }}>
             {DEFENSE_OPTIONS.map(dt => {
-              const active = defenseType === dt;
+              const active = defenseTypes.includes(dt);
               return (
                 <button
                   key={dt}
-                  onClick={() => setDefenseType(dt)}
+                  onClick={() => {
+                    setDefenseTypes(prev => {
+                      if (prev.includes(dt)) {
+                        // Don't allow deselecting the last one
+                        return prev.length > 1 ? prev.filter(x => x !== dt) : prev;
+                      }
+                      return [...prev, dt];
+                    });
+                  }}
                   style={{
                     padding: '4px 10px', borderRadius: 12, fontSize: 12, cursor: 'pointer',
                     border: '1px solid',

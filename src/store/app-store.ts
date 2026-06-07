@@ -101,7 +101,7 @@ function runOptimizer(
       item.sourceItem?.itemClass ?? item.itemClass,
     );
 
-    const ctx = computePoolContext(mods, itemTags, item, itemLevel);
+    const ctx = computePoolContext(mods, itemTags, item, itemLevel, baseItems);
     const result = optimize(item, budget, ctx);
 
     const needsPool = item.targetTags.length > 0 || item.noTagMods?.suffix || item.noTagMods?.prefix;

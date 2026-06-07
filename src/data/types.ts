@@ -78,8 +78,12 @@ export interface TargetTag {
 
 export interface TargetItem {
   itemClass: string;
-  /** Stat requirements indicate the armor sub-type (str → armour, dex → evasion, int → es) */
-  requirements: { str: boolean; dex: boolean; int: boolean };
+  /**
+   * Acceptable stat requirement combos. Each entry is one acceptable base type
+   * (e.g. [{str:false,dex:true,int:false}] for pure evasion, or two entries for evasion-or-evasion/ES).
+   * Non-armour slots use [{str:false,dex:false,int:false}].
+   */
+  requirements: { str: boolean; dex: boolean; int: boolean }[];
   targetTags: TargetTag[];
   /**
    * Tags from prefix mod selections only. When present, used for prefix pool scoring so that

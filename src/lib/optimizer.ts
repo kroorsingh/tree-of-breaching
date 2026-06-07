@@ -1,4 +1,19 @@
-import { TREE_NODES, NODE_MAP, SLOT_TO_NODE, SATELLITE_TO_HUB, EXCLUSIVE_CLUSTERS } from '../data/genesis-tree';
+import { TREE_NODES, NODE_MAP, SATELLITE_TO_HUB, EXCLUSIVE_CLUSTERS } from '../data/genesis-tree';
+
+// Maps gearType effect.gear string to the item classes it boosts
+const GEAR_TO_CLASSES: Record<string, string[]> = {
+  Armour:         ['Shield', 'Helmet', 'Body Armour', 'Gloves', 'Boots'],
+  Shield:         ['Shield'],
+  Helmet:         ['Helmet'],
+  'Body Armour':  ['Body Armour'],
+  Gloves:         ['Gloves'],
+  Boots:          ['Boots'],
+  Jewellery:      ['Amulet', 'Ring', 'Belt'],
+  Amulet:         ['Amulet'],
+  Ring:           ['Ring'],
+  Belt:           ['Belt'],
+  Jewel:          ['Jewel'],
+};
 import { GENESIS_TAG_TO_IMPLICIT_TAG } from '../data/tag-boost-map';
 import type { TargetItem, OptimizationResult, NodeId, TreeNode } from '../data/types';
 import type { PoolContext } from './mod-pool';
@@ -89,6 +104,47 @@ function scoreNode(node: TreeNode, target: TargetItem, ctx?: PoolContext): numbe
     }
   }
 
+  // Score statReq effects: ΔlogP for base type probability
+  // Uses exact log-probability change (not linearised) since M values are large (0.15 or 4.0).
+  if (ctx.baseType) {
+    const { total, desired, byStatReq } = ctx.baseType;
+    const oldP = desired / total;
+    for (const effect of node.effects) {
+      if (effect.category !== 'statReq' || !effect.statReq) continue;
+      const bw = byStatReq[effect.statReq];
+      if (!bw) continue;
+      const M = effect.value;
+      const newDesired = desired + (M - 1) * bw.desired;
+      const newTotal   = total   + (M - 1) * bw.total;
+      if (newTotal > 0 && newDesired > 0 && oldP > 0) {
+        score += Math.log(newDesired / newTotal) - Math.log(oldP);
+      }
+    }
+  }
+
+  // Score gearType effects: ΔlogP for item class probability across the global Genesis pool.
+  if (ctx.gearType) {
+    const { classCounts, total } = ctx.gearType;
+    const desired = classCounts.get(target.itemClass) ?? 0;
+    if (desired > 0) {
+      const oldP = desired / total;
+      for (const effect of node.effects) {
+        if (effect.category !== 'gearType' || !effect.gear) continue;
+        const boostedClasses = GEAR_TO_CLASSES[effect.gear] ?? [];
+        const boostedTotal   = boostedClasses.reduce((s, cls) => s + (classCounts.get(cls) ?? 0), 0);
+        const boostedDesired = boostedClasses.includes(target.itemClass) ? desired : 0;
+        const M = effect.value;
+        const newDesired = desired + (M - 1) * boostedDesired;
+        const newTotal   = total   + (M - 1) * boostedTotal;
+        if (newTotal > 0 && oldP > 0) {
+          score += newDesired > 0
+            ? Math.log(newDesired / newTotal) - Math.log(oldP)
+            : -10;
+        }
+      }
+    }
+  }
+
   return score;
 }
 
@@ -99,15 +155,29 @@ function scoreNodeHeuristic(node: TreeNode, target: TargetItem): number {
   const hasAnyTarget = target.targetTags.length > 0 || target.noTagMods?.prefix || target.noTagMods?.suffix;
 
   for (const effect of node.effects) {
-    if (effect.category !== 'modTag' || effect.tag === undefined) continue;
-    const isDesired = desiredTags.has(effect.tag);
-    if (effect.value > 1 && isDesired) {
-      const isRequired = target.targetTags.find(t => t.tag === effect.tag)?.required ?? false;
-      score += (effect.value - 1) * (isRequired ? 1.5 : 1.0);
-    } else if (effect.value < 1 && !isDesired) {
-      // For no-tag targets, forsaking any tag is helpful — weight it more
-      const bonus = hasAnyTarget && target.targetTags.length === 0 ? 0.6 : 0.3;
-      score += (1 - effect.value) * bonus;
+    if (effect.category === 'modTag' && effect.tag !== undefined) {
+      const isDesired = desiredTags.has(effect.tag);
+      if (effect.value > 1 && isDesired) {
+        const isRequired = target.targetTags.find(t => t.tag === effect.tag)?.required ?? false;
+        score += (effect.value - 1) * (isRequired ? 1.5 : 1.0);
+      } else if (effect.value < 1 && !isDesired) {
+        const bonus = hasAnyTarget && target.targetTags.length === 0 ? 0.6 : 0.3;
+        score += (1 - effect.value) * bonus;
+      }
+    } else if (effect.category === 'gearType' && effect.gear) {
+      // Heuristic: favour the node that directly names the target class
+      const boostedClasses = GEAR_TO_CLASSES[effect.gear] ?? [];
+      if (boostedClasses.includes(target.itemClass) && effect.value > 1) {
+        score += Math.log(effect.value);
+      }
+    } else if (effect.category === 'statReq' && effect.statReq) {
+      // Heuristic: favour "Less X" when no requirement combo requires that stat
+      const anyRequires = target.requirements.some(r => r[effect.statReq!]);
+      if (!anyRequires && effect.value < 1) {
+        score += Math.log(1 / effect.value) * 0.5;
+      } else if (anyRequires && effect.value > 1) {
+        score += Math.log(effect.value) * 0.5;
+      }
     }
   }
   return score;
@@ -115,22 +185,10 @@ function scoreNodeHeuristic(node: TreeNode, target: TargetItem): number {
 
 // ─── Required nodes ─────────────────────────────────────────────────────────
 
-/** Returns node IDs that MUST be taken for the target item's slot + attribute type */
-export function getLockedNodes(target: TargetItem): NodeId[] {
-  const locked: NodeId[] = [];
-
-  const slotNode = SLOT_TO_NODE[target.itemClass];
-  if (slotNode) locked.push(slotNode);
-
-  const { str, dex, int } = target.requirements;
-  if (str && !dex && !int)       locked.push('g6');
-  else if (dex && !str && !int)  locked.push('g3');
-  else if (int && !str && !dex)  locked.push('g2');
-  else if (str && int && !dex)  { locked.push('g6'); locked.push('g2'); }
-  else if (str && dex && !int)  { locked.push('g6'); locked.push('g3'); }
-  else if (dex && int && !str)  { locked.push('g3'); locked.push('g2'); }
-
-  return locked;
+/** Returns node IDs that MUST be taken for the target item's slot.
+ *  statReq and gearType nodes are now score-driven — no longer hard-locked. */
+export function getLockedNodes(_target: TargetItem): NodeId[] {
+  return [];
 }
 
 // ─── Cluster exclusivity ────────────────────────────────────────────────────
@@ -169,7 +227,8 @@ export function optimize(
   }
 
   const candidates = TREE_NODES.filter(
-    n => n.category === 'modTag' && !lockedAllocation.has(n.id)
+    n => (n.category === 'modTag' || n.category === 'statReq' || n.category === 'gearType')
+      && !lockedAllocation.has(n.id)
   );
 
   const scored = candidates

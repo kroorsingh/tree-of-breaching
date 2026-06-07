@@ -46,70 +46,49 @@ export default function AboutPanel({ onClose }: Props) {
 
         <Section title="How optimization works">
           <p>
-            Every mod that can roll on an item has a <em>spawn weight</em> — a number that
-            controls how likely it is to appear. The Genesis tree lets you tilt those weights
-            with two node types:
-          </p>
-          <ul style={{ paddingLeft: 18, marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <li><strong style={{ color: 'var(--gold)' }}>Devoted</strong> nodes increase the spawn weight of mods with a specific tag (e.g. life, fire, speed)</li>
-            <li><strong style={{ color: '#f87171' }}>Forsaken</strong> nodes decrease it</li>
-          </ul>
-          <p style={{ marginTop: 8 }}>
-            By boosting the tags you want (and suppressing ones you don't), you shift the pool in your favour.
+            The optimizer scores every candidate node across three dimensions, then picks the best
+            value-per-point until the budget runs out. Cluster rules (one satellite per hub) are
+            enforced throughout.
           </p>
 
-          <p style={{ marginTop: 14, fontWeight: 600, color: 'var(--text)' }}>What the tool does</p>
-
-          <ol style={{ paddingLeft: 18, marginTop: 8, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <li>
-              <strong>Locks required nodes</strong> — based on your item's slot and attributes, certain nodes
-              are mandatory (e.g. the armour hub for body armours, the Strength gate for Str-only items).
-              These are always included first.
-            </li>
-            <li>
-              <strong>Scores the rest</strong> — the goal is to maximise the joint probability of landing{' '}
-              <em>all</em> the mods you specified. This is equivalent to maximising the sum of log(pool share)
-              for each desired mod. For each optional node, the tool computes the gradient of that objective:
-              <pre style={{
-                background: 'var(--surface2)', border: '1px solid var(--border)',
-                borderRadius: 4, padding: '10px 14px', fontSize: 12,
-                color: 'var(--text)', overflowX: 'auto', margin: '10px 0',
-              }}>
+          <p style={{ marginTop: 14, fontWeight: 600, color: 'var(--text)' }}>1 — Mod tag nodes (Devoted / Forsaken)</p>
+          <p style={{ marginTop: 6 }}>
+            Every mod has a <em>spawn weight</em> and a set of tags. Devoted nodes multiply
+            the weight of all mods sharing a tag; Forsaken nodes shrink it. The tool scores
+            each node by how much it shifts the joint probability of landing <em>all</em> your
+            desired mods:
+          </p>
+          <pre style={{
+            background: 'var(--surface2)', border: '1px solid var(--border)',
+            borderRadius: 4, padding: '10px 14px', fontSize: 12,
+            color: 'var(--text)', overflowX: 'auto', margin: '10px 0',
+          }}>
 {`score = (M−1) × (n_desired_with_tag − n_desired_total × tag_pool_share)`}
-              </pre>
-              Breaking down the terms:
-              <ul style={{ paddingLeft: 18, marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <li><strong>M</strong> — the node's multiplier (e.g. 1.06 for +6% Devoted, 0.4 for −60% Forsaken)</li>
-                <li><strong>n_desired_with_tag</strong> — how many of your specified mods carry this tag</li>
-                <li><strong>n_desired_total</strong> — total number of your specified mods (in this pool)</li>
-                <li><strong>tag_pool_share</strong> — fraction of the full mod pool occupied by this tag (wanted mods + unwanted mods combined)</li>
-              </ul>
-              <p style={{ marginTop: 8 }}>
-                Scoring by count rather than spawn weight is intentional: the tag's pool share already encodes
-                rarity, so weighting by individual mod weight would double-count it in the wrong direction
-                (favouring common mods when rarer ones need more help).
-              </p>
-              <p style={{ marginTop: 8 }}>
-                Prefix and suffix pools are scored <em>separately and simultaneously</em>. A node that helps
-                one of your suffix mods but grows a pool of unwanted prefix mods gets penalised for the prefix
-                side — so the tool won't suggest "attack modifier chance" just because Attack Speed has the
-                attack tag, if you haven't asked for any attack prefixes.
-              </p>
-              <p style={{ marginTop: 8 }}>
-                Positive score: the node shifts the item's overall hit probability up.{' '}
-                Negative: it would make things worse (not recommended).
-              </p>
-            </li>
-            <li>
-              <strong>Picks the best value</strong> — nodes are ranked by impact-per-point-spent and selected
-              until the budget runs out. Cluster rules (you can only pick one satellite from each hub) are
-              respected throughout.
-            </li>
-          </ol>
+          </pre>
+          <p>
+            Prefix and suffix pools are scored separately — a node that inflates an unwanted
+            prefix pool gets penalised even if it helps a suffix you want.
+          </p>
 
-          <p style={{ marginTop: 10 }}>
-            Before mod data is loaded, a simpler estimate is used: Devoted nodes on your target tags score
-            by their multiplier strength, and Forsaken nodes on undesired tags get a smaller bonus.
+          <p style={{ marginTop: 14, fontWeight: 600, color: 'var(--text)' }}>2 — Base type nodes (Less / More Str / Dex / Int items)</p>
+          <p style={{ marginTop: 6 }}>
+            Genesis draws from a global pool of ~610 base items. Nodes like "Less Strength Items"
+            cut the weight of strength-requirement bases (≈37% of the pool), increasing the
+            relative probability of the base type you actually want. The tool scores these using
+            the exact log-probability change, since the multipliers are large (0.15× or 4×).
+          </p>
+          <p style={{ marginTop: 6 }}>
+            For items with no attribute requirements (rings, amulets, belts, jewels), all three
+            "Less X Items" nodes are typically recommended — removing attribute-gated bases
+            raises the chance of generating the target slot significantly.
+          </p>
+
+          <p style={{ marginTop: 14, fontWeight: 600, color: 'var(--text)' }}>3 — Gear type nodes (Gloves, Helmet, Ring, etc.)</p>
+          <p style={{ marginTop: 6 }}>
+            These nodes multiply the weight of an entire item class within the Genesis pool.
+            G4 "Gloves" (51×) scores far higher than any mod tag node when you're targeting
+            gloves, so the optimizer will always pick the matching slot node first — competing
+            against a fair per-point comparison with the mod tag nodes.
           </p>
         </Section>
 
