@@ -103,6 +103,10 @@ export const CURATED_MODS: CuratedMod[] = [
   // Spell damage — amulet only
   { id: 'spell_dmg',     displayName: 'Increased Spell Damage %',           modType: 'prefix', tags: ['Caster'],                     repoeModId: 'SpellDamage1' },
 
+  // Shield block — prefix, rolls on Armour/Evasion/hybrid shields but not ES or Ev/ES shields
+  { id: 'block',         displayName: 'Block Chance',                       modType: 'prefix', tags: ['Defense'],                    repoeModId: 'LocalIncreasedBlockPercentage1' },
+  { id: 'spell_block',   displayName: 'Spell Block Chance',                 modType: 'prefix', tags: ['Defense'],                    repoeModId: 'ShieldSpellBlockPercentage1' },
+
   // Belt prefixes
   { id: 'flask_duration',displayName: 'Flask Effect Duration',              modType: 'prefix', tags: ['Mana'],                       repoeModId: 'BeltIncreasedFlaskEffect1_' },
 
@@ -144,6 +148,9 @@ export const CURATED_MODS: CuratedMod[] = [
 
   // Accuracy — gloves/helmet/ring/amulet/dex shields
   { id: 'accuracy',      displayName: 'Accuracy Rating',                    modType: 'suffix', tags: ['Attack'],                      repoeModId: 'IncreasedAccuracyNew1_' },
+
+  // Spell suppression — suffix, rolls on Evasion / hybrid-evasion armour only
+  { id: 'suppress',      displayName: 'Spell Suppression Chance',           modType: 'suffix', tags: ['Defense'],                     repoeModId: 'ChanceToSuppressSpells1_' },
 
   // Belt suffix
   { id: 'flask_charges', displayName: 'Flask Charges Gained',               modType: 'suffix', tags: ['Life'],                        repoeModId: 'BeltIncreasedFlaskChargesGained1' },
